@@ -1,7 +1,12 @@
 import { Router } from 'express'
 import { supabase } from '../lib/supabase.ts'
+import { sendBookingEmail } from '../lib/send-booking-email.ts'
+import { dateFormatters, resolveLang, slotFormatter, TAIPEI_OFFSET } from '../lib/booking-format.ts'
+import { renderBookingConfirmationEmail } from '../emails/booking-confirmation.ts'
+import { renderBookingNotificationEmail } from '../emails/booking-notification.ts'
 
-const TAIPEI_OFFSET = '+08:00'
+const OWNER_NOTIFICATION_EMAIL = 'wenxing1016@gmail.com'
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const APPOINTMENT_SLOTS = new Set([
   '09:00',
@@ -17,12 +22,7 @@ const APPOINTMENT_SLOTS = new Set([
   '19:00',
   '20:00'
 ])
-const slotFormatter = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Asia/Taipei',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false
-})
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const appointmentsRouter = Router()
 
@@ -79,11 +79,13 @@ appointmentsRouter.get('/', async (request, response) => {
 type AppointmentRequest = {
   name?: unknown
   email?: unknown
+  service?: unknown
   contactPlatform?: unknown
   contactDetail?: unknown
   notes?: unknown
   appointmentDate?: unknown
   slot?: unknown
+  lang?: unknown
 }
 
 function requiredString(value: unknown) {
@@ -94,21 +96,29 @@ appointmentsRouter.post('/', async (request, response) => {
   const body = request.body as AppointmentRequest
   const name = requiredString(body.name)
   const email = requiredString(body.email)
+  const service = requiredString(body.service)
   const contactPlatform = requiredString(body.contactPlatform)
   const contactDetail = requiredString(body.contactDetail)
   const notes = typeof body.notes === 'string' ? body.notes.trim() : ''
   const appointmentDate = requiredString(body.appointmentDate)
   const slot = requiredString(body.slot)
+  const lang = resolveLang(body.lang)
 
   if (
     !name ||
     !email ||
+    !service ||
     !contactPlatform ||
     !contactDetail ||
     !appointmentDate ||
     !slot
   ) {
     response.status(400).json({ error: 'missing required fields' })
+    return
+  }
+
+  if (!EMAIL_PATTERN.test(email)) {
+    response.status(400).json({ error: 'invalid email address' })
     return
   }
 
@@ -141,10 +151,13 @@ appointmentsRouter.post('/', async (request, response) => {
     {
       client_name: name,
       client_email: email,
+      service,
       appointment_date: appointmentIsoDate,
-      contact: `[${contactPlatform}] ${contactDetail}`,
+      contact_platform: contactPlatform,
+      contact_detail: contactDetail,
       message: notes,
-      status: 'pending'
+      status: 'pending',
+      lang
     }
   ])
 
@@ -154,4 +167,42 @@ appointmentsRouter.post('/', async (request, response) => {
   }
 
   response.status(201).json({ success: true })
+
+  // Booking is already confirmed at this point — a flaky email provider
+  // should never turn a successful booking into a failed request.
+  try {
+    const appointmentDateObj = new Date(appointmentIsoDate)
+    const { subject, html } = renderBookingConfirmationEmail({
+      lang,
+      name,
+      service,
+      dateLabel: dateFormatters[lang].format(appointmentDateObj),
+      timeLabel: slotFormatter.format(appointmentDateObj),
+      contactPlatform,
+      contactDetail,
+      notes
+    })
+
+    await sendBookingEmail({ to: email, subject, html })
+  } catch (emailError) {
+    console.error('Failed to send booking confirmation email:', emailError)
+  }
+
+  try {
+    const appointmentDateObj = new Date(appointmentIsoDate)
+    const { subject, html } = renderBookingNotificationEmail({
+      clientName: name,
+      clientEmail: email,
+      service,
+      dateLabel: dateFormatters.zh.format(appointmentDateObj),
+      timeLabel: slotFormatter.format(appointmentDateObj),
+      contactPlatform,
+      contactDetail,
+      notes
+    })
+
+    await sendBookingEmail({ to: OWNER_NOTIFICATION_EMAIL, subject, html })
+  } catch (emailError) {
+    console.error('Failed to send booking notification email:', emailError)
+  }
 })

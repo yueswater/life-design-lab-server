@@ -9,6 +9,15 @@ vi.mock('../../src/lib/supabase.ts', () => ({
   }
 }))
 
+vi.mock('../../src/lib/resend.ts', () => ({
+  resend: {
+    emails: {
+      send: vi.fn().mockResolvedValue({ data: { id: 'test-email' }, error: null })
+    }
+  },
+  RESEND_FROM: 'Life Design Lab <contact@life-design-lab.space>'
+}))
+
 import { supabase } from '../../src/lib/supabase.ts'
 
 function buildApp() {
@@ -98,11 +107,13 @@ describe('POST /api/appointments', () => {
   const payload = {
     name: 'Jasmine',
     email: 'jasmine@example.com',
+    service: '1-on-1 Coaching',
     contactPlatform: 'Line ID',
     contactDetail: 'jasmine_line',
     notes: 'wants career advice',
     appointmentDate: '2026-08-01',
-    slot: '09:00'
+    slot: '09:00',
+    lang: 'en'
   }
 
   beforeEach(() => {
@@ -187,10 +198,13 @@ describe('POST /api/appointments', () => {
       {
         client_name: 'Jasmine',
         client_email: 'jasmine@example.com',
+        service: '1-on-1 Coaching',
         appointment_date: '2026-08-01T01:00:00.000Z',
-        contact: '[Line ID] jasmine_line',
+        contact_platform: 'Line ID',
+        contact_detail: 'jasmine_line',
         message: 'wants career advice',
-        status: 'pending'
+        status: 'pending',
+        lang: 'en'
       }
     ])
   })
