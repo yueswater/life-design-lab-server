@@ -10,6 +10,7 @@ import { sendBookingEmail } from '../lib/send-booking-email.ts'
 import { dateFormatters, resolveLang, slotFormatter } from '../lib/booking-format.ts'
 import { renderBookingConfirmedEmail } from '../emails/booking-confirmed.ts'
 import { renderBookingCancelledEmail } from '../emails/booking-cancelled.ts'
+import { toCsv } from '../lib/csv.ts'
 
 export const adminRouter = Router()
 
@@ -116,6 +117,65 @@ function parseStatusUpdate(body: unknown): { status: AppointmentStatus; reason: 
 
 // Registered before the `/appointments/:id` route below — Express would
 // otherwise match "batch" as the :id wildcard and this route would never fire.
+const STATUS_LABEL_ZH: Record<AppointmentStatus, string> = {
+  pending: '待確認',
+  confirmed: '已確認',
+  cancelled: '已取消'
+}
+
+adminRouter.post('/appointments/export', async (request, response) => {
+  const body = request.body as { ids?: unknown }
+  const ids = Array.isArray(body.ids) ? body.ids.filter((v): v is string => typeof v === 'string') : []
+
+  let query = supabase.from('appointments').select(APPOINTMENT_COLUMNS).order('appointment_date', { ascending: true })
+  if (ids.length > 0) query = query.in('id', ids)
+
+  const { data, error } = await query
+
+  if (error) {
+    response.status(500).json({ error: error.message })
+    return
+  }
+
+  const rows = (data ?? []).map((row) => {
+    const lang = resolveLang(row.lang)
+    const appointmentDateObj = new Date(row.appointment_date)
+    return {
+      appointmentDate: `${dateFormatters[lang].format(appointmentDateObj)} ${slotFormatter.format(appointmentDateObj)}`,
+      clientName: row.client_name,
+      clientEmail: row.client_email,
+      service: row.service ?? '',
+      contactPlatform: row.contact_platform,
+      contactDetail: row.contact_detail,
+      message: row.message ?? '',
+      status: STATUS_LABEL_ZH[row.status as AppointmentStatus] ?? row.status,
+      isPaid: row.is_paid ? '是' : '否',
+      createdAt: row.created_at,
+      cancellationReason: row.cancellation_reason ?? ''
+    }
+  })
+
+  const csv = toCsv(rows, [
+    { key: 'appointmentDate', header: '預約時間' },
+    { key: 'clientName', header: '姓名' },
+    { key: 'clientEmail', header: 'Email' },
+    { key: 'service', header: '服務項目' },
+    { key: 'contactPlatform', header: '聯絡方式' },
+    { key: 'contactDetail', header: '聯絡資訊' },
+    { key: 'message', header: '備註' },
+    { key: 'status', header: '狀態' },
+    { key: 'isPaid', header: '已付款' },
+    { key: 'createdAt', header: '建立時間' },
+    { key: 'cancellationReason', header: '取消原因' }
+  ])
+
+  const filename = `appointments-${new Date().toISOString().slice(0, 10)}.csv`
+  response.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  response.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  // Leading BOM so Excel opens the UTF-8 file without mangling Chinese text.
+  response.send('﻿' + csv)
+})
+
 adminRouter.patch('/appointments/batch', async (request, response) => {
   const body = request.body as { ids?: unknown }
   const ids = Array.isArray(body.ids) ? body.ids.filter((v): v is string => typeof v === 'string') : []
