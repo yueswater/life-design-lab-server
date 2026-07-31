@@ -4,6 +4,8 @@ import express from 'express'
 import { appointmentsRouter } from './routes/appointments.ts'
 import { postsRouter } from './routes/posts.ts'
 import { adminRouter } from './routes/admin.ts'
+import { articlesRouter } from './routes/articles.ts'
+import { adminArticlesRouter } from './routes/admin-articles.ts'
 
 // Allows the configured production origin (with or without the "www." prefix)
 // plus any Vercel preview deployment (they get a random *.vercel.app URL per
@@ -41,7 +43,9 @@ export function createApp() {
 
   app.use('/api/posts', postsRouter)
   app.use('/api/appointments', appointmentsRouter)
+  app.use('/api/articles', articlesRouter)
   app.use('/api/admin', adminRouter)
+  app.use('/api/admin/articles', adminArticlesRouter)
 
   return app
 }
