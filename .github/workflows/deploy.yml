@@ -1,0 +1,48 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+env:
+  PROJECT_ID: life-design-lab-app
+  REGION: asia-east1
+  SERVICE: life-design-lab-server
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1059509268842/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@life-design-lab-app.iam.gserviceaccount.com
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          project_id: ${{ env.PROJECT_ID }}
+          region: ${{ env.REGION }}
+          source: .
+          flags: --platform managed --allow-unauthenticated --min-instances 1 --max-instances 2 --memory 256Mi
