@@ -5,9 +5,9 @@ import { clientIp, hashIp } from '../lib/articles.ts'
 export const articlesRouter = Router()
 
 const PUBLIC_LIST_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, cover_image_url, view_count, share_count, published_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, cover_image_url, view_count, share_count, tags, published_at'
 const PUBLIC_DETAIL_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, view_count, share_count, published_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, view_count, share_count, tags, published_at'
 
 articlesRouter.get('/', async (request, response) => {
   const limitParam = Number(request.query.limit)
@@ -35,6 +35,7 @@ articlesRouter.get('/', async (request, response) => {
     coverImageUrl: a.cover_image_url,
     viewCount: a.view_count,
     shareCount: a.share_count,
+    tags: a.tags ?? [],
     publishedAt: a.published_at
   }))
 
@@ -68,6 +69,7 @@ articlesRouter.get('/:slug', async (request, response) => {
     coverImageUrl: data.cover_image_url,
     viewCount: data.view_count,
     shareCount: data.share_count,
+    tags: data.tags ?? [],
     publishedAt: data.published_at
   })
 })
