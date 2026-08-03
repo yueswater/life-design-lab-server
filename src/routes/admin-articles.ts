@@ -71,6 +71,7 @@ const EMPTY_DOC = { type: 'doc', content: [] }
 type ArticleBody = {
   titleZh?: unknown
   titleEn?: unknown
+  slug?: unknown
   descriptionZh?: unknown
   descriptionEn?: unknown
   contentZh?: unknown
@@ -79,11 +80,13 @@ type ArticleBody = {
   status?: unknown
 }
 
-async function uniqueSlug(base: string): Promise<string> {
+async function uniqueSlug(base: string, excludeId?: string): Promise<string> {
   let candidate = base
   let suffix = 2
   for (;;) {
-    const { data } = await supabase.from('articles').select('id').eq('slug', candidate).maybeSingle()
+    let query = supabase.from('articles').select('id').eq('slug', candidate)
+    if (excludeId) query = query.neq('id', excludeId)
+    const { data } = await query.maybeSingle()
     if (!data) return candidate
     candidate = `${base}-${suffix}`
     suffix += 1
@@ -94,13 +97,14 @@ adminArticlesRouter.post('/', async (request, response) => {
   const body = request.body as ArticleBody
   const titleZh = typeof body.titleZh === 'string' ? body.titleZh.trim() : ''
   const titleEn = typeof body.titleEn === 'string' ? body.titleEn.trim() : ''
+  const customSlug = typeof body.slug === 'string' ? body.slug.trim() : ''
 
   if (!titleZh) {
     response.status(400).json({ error: 'titleZh is required' })
     return
   }
 
-  const slug = await uniqueSlug(slugify(titleZh))
+  const slug = await uniqueSlug(slugify(customSlug || titleZh))
 
   const { data, error } = await supabase
     .from('articles')
@@ -118,6 +122,10 @@ adminArticlesRouter.post('/', async (request, response) => {
     .single()
 
   if (error || !data) {
+    if (error?.code === '23505') {
+      response.status(409).json({ error: 'slug already in use' })
+      return
+    }
     response.status(500).json({ error: error?.message ?? 'failed to create article' })
     return
   }
@@ -131,6 +139,9 @@ adminArticlesRouter.patch('/:id', async (request, response) => {
 
   if (typeof body.titleZh === 'string') update.title_zh = body.titleZh.trim()
   if (typeof body.titleEn === 'string') update.title_en = body.titleEn.trim()
+  if (typeof body.slug === 'string' && body.slug.trim()) {
+    update.slug = await uniqueSlug(slugify(body.slug.trim()), request.params.id)
+  }
   if (typeof body.descriptionZh === 'string') update.description_zh = body.descriptionZh.trim()
   if (typeof body.descriptionEn === 'string') update.description_en = body.descriptionEn.trim()
   if (body.contentZh !== undefined) update.content_zh = body.contentZh
@@ -163,6 +174,10 @@ adminArticlesRouter.patch('/:id', async (request, response) => {
     .single()
 
   if (error || !data) {
+    if (error?.code === '23505') {
+      response.status(409).json({ error: 'slug already in use' })
+      return
+    }
     response.status(500).json({ error: error?.message ?? 'failed to update article' })
     return
   }
