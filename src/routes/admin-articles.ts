@@ -16,7 +16,7 @@ adminArticlesRouter.use((request, response, next) => {
 })
 
 const ADMIN_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, status, view_count, published_at, created_at, updated_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, status, view_count, share_count, published_at, created_at, updated_at'
 
 function toAdminArticle(row: Record<string, unknown>) {
   return {
@@ -31,6 +31,7 @@ function toAdminArticle(row: Record<string, unknown>) {
     coverImageUrl: row.cover_image_url,
     status: row.status,
     viewCount: row.view_count,
+    shareCount: row.share_count,
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at

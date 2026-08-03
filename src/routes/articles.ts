@@ -5,9 +5,9 @@ import { clientIp, hashIp } from '../lib/articles.ts'
 export const articlesRouter = Router()
 
 const PUBLIC_LIST_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, cover_image_url, view_count, published_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, cover_image_url, view_count, share_count, published_at'
 const PUBLIC_DETAIL_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, view_count, published_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, view_count, share_count, published_at'
 
 articlesRouter.get('/', async (request, response) => {
   const limitParam = Number(request.query.limit)
@@ -34,6 +34,7 @@ articlesRouter.get('/', async (request, response) => {
     descriptionEn: a.description_en,
     coverImageUrl: a.cover_image_url,
     viewCount: a.view_count,
+    shareCount: a.share_count,
     publishedAt: a.published_at
   }))
 
@@ -66,6 +67,7 @@ articlesRouter.get('/:slug', async (request, response) => {
     contentEn: data.content_en,
     coverImageUrl: data.cover_image_url,
     viewCount: data.view_count,
+    shareCount: data.share_count,
     publishedAt: data.published_at
   })
 })
@@ -104,6 +106,31 @@ articlesRouter.post('/:slug/view', async (request, response) => {
       .update({ view_count: (article.view_count ?? 0) + 1 })
       .eq('id', article.id)
   }
+
+  response.json({ success: true })
+})
+
+// Fired on every share-button click — no dedup by design, since sharing the
+// same article again (to a different person/platform) should count again.
+articlesRouter.post('/:slug/share', async (request, response) => {
+  const { slug } = request.params
+
+  const { data: article, error: findError } = await supabase
+    .from('articles')
+    .select('id, share_count')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .single()
+
+  if (findError || !article) {
+    response.status(404).json({ error: 'article not found' })
+    return
+  }
+
+  await supabase
+    .from('articles')
+    .update({ share_count: (article.share_count ?? 0) + 1 })
+    .eq('id', article.id)
 
   response.json({ success: true })
 })
