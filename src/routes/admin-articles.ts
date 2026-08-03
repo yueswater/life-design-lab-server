@@ -16,7 +16,7 @@ adminArticlesRouter.use((request, response, next) => {
 })
 
 const ADMIN_COLUMNS =
-  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, status, view_count, share_count, published_at, created_at, updated_at'
+  'id, slug, title_zh, title_en, description_zh, description_en, content_zh, content_en, cover_image_url, status, view_count, share_count, tags, published_at, created_at, updated_at'
 
 function toAdminArticle(row: Record<string, unknown>) {
   return {
@@ -32,6 +32,7 @@ function toAdminArticle(row: Record<string, unknown>) {
     status: row.status,
     viewCount: row.view_count,
     shareCount: row.share_count,
+    tags: row.tags ?? [],
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -50,6 +51,24 @@ adminArticlesRouter.get('/', async (_request, response) => {
   }
 
   response.json((data ?? []).map(toAdminArticle))
+})
+
+// Distinct tags across all articles, for the admin tag-input's suggestion
+// list. Registered before /:id so "suggestions" isn't swallowed as an id.
+adminArticlesRouter.get('/tags/suggestions', async (_request, response) => {
+  const { data, error } = await supabase.from('articles').select('tags')
+
+  if (error) {
+    response.status(500).json({ error: error.message })
+    return
+  }
+
+  const tags = new Set<string>()
+  for (const row of data ?? []) {
+    for (const tag of (row.tags as string[] | null) ?? []) tags.add(tag)
+  }
+
+  response.json([...tags].sort((a, b) => a.localeCompare(b, 'zh-Hant')))
 })
 
 adminArticlesRouter.get('/:id', async (request, response) => {
@@ -79,6 +98,24 @@ type ArticleBody = {
   contentEn?: unknown
   coverImageUrl?: unknown
   status?: unknown
+  tags?: unknown
+}
+
+const MAX_TAGS = 5
+
+// Returns undefined (meaning "not provided, leave unchanged") or a
+// deduped, trimmed, max-5 tag array. Throws if the shape is wrong so
+// callers can respond 400 instead of silently accepting garbage.
+function parseTags(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || !value.every((t) => typeof t === 'string')) {
+    throw new Error('tags must be an array of strings')
+  }
+  const tags = [...new Set(value.map((t) => t.trim()).filter(Boolean))]
+  if (tags.length > MAX_TAGS) {
+    throw new Error(`tags must have at most ${MAX_TAGS} items`)
+  }
+  return tags
 }
 
 async function uniqueSlug(base: string, excludeId?: string): Promise<string> {
@@ -105,6 +142,14 @@ adminArticlesRouter.post('/', async (request, response) => {
     return
   }
 
+  let tags: string[] | undefined
+  try {
+    tags = parseTags(body.tags)
+  } catch (err) {
+    response.status(400).json({ error: err instanceof Error ? err.message : 'invalid tags' })
+    return
+  }
+
   const slug = await uniqueSlug(slugify(customSlug || titleZh))
 
   const { data, error } = await supabase
@@ -116,6 +161,7 @@ adminArticlesRouter.post('/', async (request, response) => {
         title_en: titleEn || titleZh,
         content_zh: body.contentZh ?? EMPTY_DOC,
         content_en: body.contentEn ?? EMPTY_DOC,
+        tags: tags ?? [],
         status: 'draft'
       }
     ])
@@ -148,6 +194,14 @@ adminArticlesRouter.patch('/:id', async (request, response) => {
   if (body.contentZh !== undefined) update.content_zh = body.contentZh
   if (body.contentEn !== undefined) update.content_en = body.contentEn
   if (typeof body.coverImageUrl === 'string') update.cover_image_url = body.coverImageUrl
+
+  try {
+    const tags = parseTags(body.tags)
+    if (tags !== undefined) update.tags = tags
+  } catch (err) {
+    response.status(400).json({ error: err instanceof Error ? err.message : 'invalid tags' })
+    return
+  }
 
   if (body.status !== undefined) {
     if (!isArticleStatus(body.status)) {
